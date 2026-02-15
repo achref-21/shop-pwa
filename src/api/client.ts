@@ -1,4 +1,4 @@
-const API_BASE = "https://6405-196-178-200-174.ngrok-free.app/api";
+const API_BASE = "https://0565-196-178-200-174.ngrok-free.app/api";
 //const API_BASE = "http://localhost:8000/api";
 
 export async function apiFetch<T>(
