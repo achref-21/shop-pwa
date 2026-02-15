@@ -37,6 +37,9 @@ export default defineConfig({
       }
     })
   ],
+  
+  base: "/shop-pwa/",
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src")

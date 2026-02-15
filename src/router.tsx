@@ -20,6 +20,10 @@ export const router = createBrowserRouter([
       { path: "resume-journalier", element: <DailySummary /> },
       { path: "synthese-periodique", element: <PeriodSummary /> },
       { path: "paiements", element: <Payments /> },
-    ]
+    ],
   }
-]);
+],
+{
+    basename: "/shop-pwa/"   // ⭐⭐⭐ CRITICAL
+  }
+);
