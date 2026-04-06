@@ -8,12 +8,11 @@
   background: #f8fafc;
 }
 
-/* Cards */
 .card {
   background: white;
   border-radius: 14px;
   padding: 1.2rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .card h2 {
@@ -28,16 +27,19 @@
   color: #475569;
 }
 
-.period-range strong {
-  color: #1e293b;
-  font-weight: 600;
-}
-
-/* Top Bar */
 .top-bar {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.period-error {
+  padding: 0.8rem;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 0.85rem;
 }
 
 .controls-section {
@@ -102,7 +104,53 @@
   background: #f3e8ff;
 }
 
-/* Suppliers List */
+.period-meta-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.period-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.period-meta-line strong {
+  color: #1e293b;
+}
+
+.lifecycle-trigger {
+  white-space: nowrap;
+}
+
+.credit-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.credit-metric-item {
+  padding: 0.8rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.credit-metric-item span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.credit-metric-item strong {
+  font-size: 1rem;
+  color: #1e293b;
+}
+
 .suppliers-list {
   display: flex;
   flex-direction: column;
@@ -137,11 +185,17 @@
 
 .supplier-amounts {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
   flex: 1;
-  text-align: right;
   padding-left: 1rem;
+}
+
+.amount-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
 }
 
 .amount-label {
@@ -168,10 +222,31 @@
   color: #1e3a8a;
 }
 
-/* Responsive */
+.supplier-summary-item.static-row,
+.supplier-summary-item.static-row:hover {
+  cursor: default;
+  background: #e8e8ff;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 1.8rem 1rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 640px) {
   .totals-card {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .period-meta-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .credit-metrics-grid {
+    grid-template-columns: 1fr;
   }
 
   .supplier-amounts {
@@ -192,7 +267,10 @@
 
   .supplier-amounts {
     width: 100%;
-    text-align: left;
     padding-left: 0;
+  }
+
+  .amount-cell {
+    align-items: flex-start;
   }
 }

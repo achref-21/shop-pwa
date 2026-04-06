@@ -21,7 +21,8 @@ export default defineConfig({
         theme_color: "#0f172a",
         background_color: "#0f172a",
         display: "standalone",
-        start_url: "/",
+        start_url: "/shop-pwa/",
+        scope: "/shop-pwa/",
         icons: [
           {
             src: "/pwa-192x192.png",
@@ -44,5 +45,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src")
     }
-  }
+  },
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.ts",
+    css: true,
+  },
 });

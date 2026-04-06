@@ -1,0 +1,36 @@
+.daily-limit-crossing-modal {
+  width: min(460px, 96vw);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.daily-limit-crossing-modal h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+}
+
+.daily-limit-crossing-text {
+  margin: 0 0 0.8rem;
+  color: #7c2d12;
+  font-size: 0.9rem;
+}
+
+.daily-limit-crossing-summary {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  border-radius: 10px;
+  padding: 0.7rem;
+}
+
+.daily-limit-crossing-summary p {
+  margin: 0.2rem 0;
+  font-size: 0.86rem;
+  color: #9a3412;
+}
+
+.daily-limit-crossing-actions {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.55rem;
+}
+

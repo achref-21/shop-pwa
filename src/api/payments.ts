@@ -1,18 +1,48 @@
 import { apiFetch } from "./client";
 import { cacheGet, cacheSet } from "@/services/cache";
 
-export type PaymentStatus = "PAID" | "CREDIT" | "INSTALLMENTS";
+export type PaymentStatus = "PAID" | "CREDIT" | "CANCELLED";
+export type EntryType =
+  | "CREDIT_OPEN"
+  | "CREDIT_SETTLED"
+  | "CREDIT_PARTIAL_PAYMENT"
+  | "DIRECT_PAID";
 
 export type Payment = {
   id: number;
   supplier: string;
   supplier_id: number;
-  date: string; 
+  date: string;
   amount: number;
   status: PaymentStatus;
   note?: string;
   expected_payment_date?: string | null;
-  created_at?: string; // Payment creation date (for 90-day caching)
+  created_at?: string;
+  credit_payment_id?: number | null;
+  entry_type?: EntryType | null;
+  original_credit_amount?: number | null;
+  remaining_amount?: number | null;
+  credit_opened_date?: string | null;
+  credit_expected_payment_date?: string | null;
+  credit_settled_date?: string | null;
+};
+
+export type PartialCreditPaymentRequest = {
+  amount: number;
+  date?: string;
+  note?: string;
+};
+
+export type SettleCreditRequest = {
+  settle_date: string;
+};
+
+export type PartialCreditPaymentResponse = {
+  message: string;
+  credit_payment_id: number;
+  remaining_amount: number;
+  is_fully_settled: boolean;
+  settled_on: string | null;
 };
 
 export type PaymentsSearchFilters = {
@@ -49,6 +79,10 @@ function filterLast90Days(payments: Payment[]): Payment[] {
   });
 }
 
+function getExpectedDate(payment: Payment): string | null {
+  return payment.credit_expected_payment_date ?? payment.expected_payment_date ?? null;
+}
+
 /**
  * Local filtering function - mirrors backend behavior as closely as possible
  */
@@ -72,24 +106,27 @@ export function filterPaymentsLocal(
   // The date pickers are specifically for credit payment dates
   if (filters.start_expected_date) {
     const startDate = filters.start_expected_date;
-    filtered = filtered.filter(p =>
-      p.status !== "CREDIT" || !p.expected_payment_date || p.expected_payment_date >= startDate
-    );
+    filtered = filtered.filter((payment) => {
+      const expectedDate = getExpectedDate(payment);
+      return payment.status !== "CREDIT" || !expectedDate || expectedDate >= startDate;
+    });
   }
 
   if (filters.end_expected_date) {
     const endDate = filters.end_expected_date;
-    filtered = filtered.filter(p =>
-      p.status !== "CREDIT" || !p.expected_payment_date || p.expected_payment_date <= endDate
-    );
+    filtered = filtered.filter((payment) => {
+      const expectedDate = getExpectedDate(payment);
+      return payment.status !== "CREDIT" || !expectedDate || expectedDate <= endDate;
+    });
   }
 
   // Filter overdue only (only applies to CREDIT payments)
   if (filters.overdue_only) {
     const now = new Date();
     filtered = filtered.filter(p => {
-      if (p.status !== "CREDIT" || !p.expected_payment_date) return false;
-      return new Date(p.expected_payment_date) < now;
+      const expectedDate = getExpectedDate(p);
+      if (p.status !== "CREDIT" || !expectedDate) return false;
+      return new Date(expectedDate) < now;
     });
   }
 
@@ -198,18 +235,50 @@ export function updatePayment(
   });
 }
 
-export function deletePayment(id: number) {
+export type DeleteConfirmationResponse = {
+  requires_confirmation: true;
+  payment_id: number;
+  child_count: number;
+  options: {
+    cascade: string;
+    leave: string;
+  };
+};
+
+export type DeleteResponse =
+  | { requires_confirmation?: false; message: string; payment_id: number }
+  | DeleteConfirmationResponse;
+
+
+export function deletePayment(id: number, force?: "cascade" | "leave") {
   if (!navigator.onLine) {
     return Promise.reject(new Error("Opération impossible hors ligne"));
   }
-  return apiFetch(`/payments/${id}`, { method: "DELETE" });
+  const url = force ? `/payments/${id}?force=${force}` : `/payments/${id}`;
+  return apiFetch<DeleteResponse>(url, { method: "DELETE" });
 }
 
-export function settleCredit(id: number) {
+export function settleCredit(id: number, data: SettleCreditRequest) {
   if (!navigator.onLine) {
     return Promise.reject(new Error("Opération impossible hors ligne"));
   }
-  return apiFetch(`/payments/${id}/settle`, { method: "POST" });
+  return apiFetch(`/payments/${id}/settle`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function partialCreditPayment(
+  id: number,
+  data: PartialCreditPaymentRequest
+) {
+  if (!navigator.onLine) {
+    return Promise.reject(new Error("Opération impossible hors ligne"));
+  }
+  return apiFetch<PartialCreditPaymentResponse>(`/payments/${id}/partial`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 

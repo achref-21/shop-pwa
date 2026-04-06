@@ -1,5 +1,17 @@
-const API_BASE = "https://0565-196-178-200-174.ngrok-free.app/api";
-//const API_BASE = "http://localhost:8000/api";
+//const API_BASE = "https://shop-app-dep.onrender.com/api";
+const API_BASE = "http://localhost:8000/api";
+
+export class ApiHttpError extends Error {
+  status: number;
+  body: string;
+
+  constructor(status: number, body: string, statusText: string) {
+    super(body || statusText || `HTTP ${status}`);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
 
 export async function apiFetch<T>(
   path: string,
@@ -15,7 +27,7 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new ApiHttpError(res.status, text, res.statusText);
   }
 
   return res.json();

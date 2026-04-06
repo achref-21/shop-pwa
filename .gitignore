@@ -21,3 +21,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Codex and claude
+.codex
+.claude
+.mcp.json
+.playwright-mcp
+CLAUDE.md
+CONTEXT.md
+REFERENCES.md

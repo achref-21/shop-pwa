@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import SupplierDialog from "../components/SupplierDialog";
 import "./Suppliers.css";
-
 import {
-  getSuppliersWithCredit,
-  deleteSupplier as apiDeleteSupplier,
-  updateSupplier,
   createSupplier,
+  deleteSupplier as apiDeleteSupplier,
+  getSuppliersWithCredit,
+  updateSupplier,
 } from "@/api/suppliers";
-
 
 type Supplier = {
   id: number;
@@ -18,38 +16,26 @@ type Supplier = {
   notes?: string;
 };
 
-
 export default function Suppliers() {
-  /* ─────────────────────────────
-     State
-  ───────────────────────────── */
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [totalCredit, setTotalCredit] = useState(0);
-
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-
 
   useEffect(() => {
     getSuppliersWithCredit()
       .then((data) => {
         setSuppliers(data);
-        const total = data.reduce((sum, s) => sum + s.credit_total, 0);
+        const total = data.reduce((sum, supplier) => sum + supplier.credit_total, 0);
         setTotalCredit(total);
       })
       .catch(console.error);
   }, []);
 
-
-  /* ─────────────────────────────
-     Handlers
-  ───────────────────────────── */
   function toggleSelection(id: number) {
-    setSelectedIds(prev =>
-      prev.includes(id)
-        ? prev.filter(x => x !== id)
-        : [...prev, id]
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
     );
   }
 
@@ -60,7 +46,7 @@ export default function Suppliers() {
 
   function openEditDialog() {
     if (selectedIds.length !== 1) return;
-    const supplier = suppliers.find(s => s.id === selectedIds[0]) || null;
+    const supplier = suppliers.find((row) => row.id === selectedIds[0]) || null;
     setEditingSupplier(supplier);
     setDialogOpen(true);
   }
@@ -68,7 +54,7 @@ export default function Suppliers() {
   async function deleteSelected() {
     for (const id of selectedIds) {
       const confirmed = window.confirm(
-        "Supprimer ce fournisseur ?\nLes paiements associés seront aussi supprimés."
+        "Supprimer ce fournisseur ?\nLes paiements associes seront aussi supprimes."
       );
       if (!confirmed) continue;
       await apiDeleteSupplier(id);
@@ -76,7 +62,7 @@ export default function Suppliers() {
 
     const refreshed = await getSuppliersWithCredit();
     setSuppliers(refreshed);
-    const total = refreshed.reduce((sum, s) => sum + s.credit_total, 0);
+    const total = refreshed.reduce((sum, supplier) => sum + supplier.credit_total, 0);
     setTotalCredit(total);
     setSelectedIds([]);
   }
@@ -86,23 +72,17 @@ export default function Suppliers() {
     setEditingSupplier(null);
   }
 
-  /* ─────────────────────────────
-     Render
-  ───────────────────────────── */
   return (
     <section className="suppliers-page">
-
-      {/* ───────────────── Top Bar ───────────────── */}
       <div className="top-bar">
         <div className="totals-card">
           <div className="total credit">
-            <span>Crédit dû</span>
+            <span>Credit en cours</span>
             <strong>{totalCredit.toFixed(2)}</strong>
           </div>
         </div>
       </div>
 
-      {/* ───────────────── Form Card ───────────────── */}
       <div className="card">
         <h2>Ajouter un fournisseur</h2>
 
@@ -113,39 +93,32 @@ export default function Suppliers() {
         </div>
       </div>
 
-      {/* ───────────────── Suppliers List ───────────────── */}
       <div className="card">
-        <h2>Fournisseurs</h2>
+        <h2>Fournisseurs avec credit en cours</h2>
 
         <div className="suppliers-list">
-          {suppliers.map(s => (
-            <div
-              key={s.id}
-              className="supplier-item"
-            >
+          {suppliers.map((supplier) => (
+            <div key={supplier.id} className="supplier-item">
               <input
                 type="checkbox"
-                checked={selectedIds.includes(s.id)}
-                onChange={() => toggleSelection(s.id)}
+                checked={selectedIds.includes(supplier.id)}
+                onChange={() => toggleSelection(supplier.id)}
               />
 
               <div className="supplier-main">
-                <strong>{s.name}</strong>
+                <strong>{supplier.name}</strong>
               </div>
 
               <div className="supplier-meta">
-                {s.phone && <span className="phone">{s.phone}</span>}
-                {s.notes && <span className="notes">{s.notes}</span>}
-                <span className="credit">
-                  {s.credit_total.toFixed(2)}
-                </span>
+                {supplier.phone && <span className="phone">{supplier.phone}</span>}
+                {supplier.notes && <span className="notes">{supplier.notes}</span>}
+                <span className="credit">{supplier.credit_total.toFixed(2)}</span>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ───────────────── Sticky Action Bar ───────────────── */}
       <div className="action-bar">
         <button
           className="secondary"
@@ -164,7 +137,6 @@ export default function Suppliers() {
         </button>
       </div>
 
-      {/* ───────── Dialog ───────── */}
       {dialogOpen && (
         <SupplierDialog
           supplier={
@@ -187,13 +159,12 @@ export default function Suppliers() {
 
             const refreshed = await getSuppliersWithCredit();
             setSuppliers(refreshed);
-            const total = refreshed.reduce((sum, s) => sum + s.credit_total, 0);
+            const total = refreshed.reduce((sum, supplier) => sum + supplier.credit_total, 0);
             setTotalCredit(total);
             closeDialog();
           }}
         />
       )}
-
     </section>
   );
 }
