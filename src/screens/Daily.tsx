@@ -1,22 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { type ComponentProps, useCallback, useEffect, useMemo, useState } from "react";
+import { DateInput } from "@mantine/dates";
 import { useOnline } from "@/hooks/useOnline";
 import { useDateAwareCachedData } from "@/hooks/useDateAwareCachedData";
-import {
-  getDailySummary,
-  type CreditLifecycleStatus,
-  type DailyCreditLifecycleItem,
-  type DailyPayment,
-} from "@/api/summary";
+import { getDailySummary, type DailyPayment } from "@/api/summary";
+import SupplierAvatar from "@/components/SupplierAvatar";
+import StatusBadge from "@/components/StatusBadge";
 import {
   formatAmount,
   formatDateDDMMYYYY,
-  getCreditExpectedDate,
-  getEntryTypeClassName,
-  getEntryTypeIcon,
-  getEntryTypeLabel,
   getOriginalCreditAmount,
   getRemainingAmount,
   groupPaymentsByCreditThread,
+  inferEntryType,
+  isOverdueOpenCredit,
 } from "@/utils/paymentDisplay";
 import { todayLocalDate } from "@/utils/localDate";
 import "./Daily.css";
@@ -28,27 +24,40 @@ type Totals = {
   cash: string;
 };
 
-const LIFECYCLE_STATUS_LABELS: Record<CreditLifecycleStatus, string> = {
-  OPEN: "Ouvert",
-  SETTLED: "Regle",
-  OVERDUE: "En retard",
-  DUE_SOON: "Echeance proche",
+type BadgeStatus = ComponentProps<typeof StatusBadge>["status"];
+
+type NormalizedDailyPayment = DailyPayment & {
+  id: number;
+  supplier_id: number;
+  date: string;
+  status: "PAID" | "CREDIT" | "CANCELLED";
 };
 
-function dueInDaysLabel(value: number | null): string {
-  if (value === null) {
-    return "Sans echeance";
+function normalizeStatus(status: DailyPayment["status"]): "PAID" | "CREDIT" | "CANCELLED" {
+  if (status === "CREDIT" || status === "CANCELLED") {
+    return status;
   }
 
-  if (value > 0) {
-    return `Dans ${value} j`;
+  return "PAID";
+}
+
+function getRowBadgeStatus(
+  payment: NormalizedDailyPayment,
+  options: { isRoot: boolean; isSettledChain: boolean }
+): BadgeStatus {
+  if (options.isRoot && options.isSettledChain && payment.status === "CREDIT") {
+    return "CREDIT_SETTLED";
   }
 
-  if (value === 0) {
-    return "Echeance aujourd'hui";
+  if (isOverdueOpenCredit(payment)) {
+    return "OVERDUE";
   }
 
-  return `${Math.abs(value)} j de retard`;
+  const entryType = inferEntryType(payment);
+  if (entryType === "CREDIT_OPEN") return "CREDIT_OPEN";
+  if (entryType === "CREDIT_PARTIAL_PAYMENT") return "CREDIT_PARTIAL_PAYMENT";
+  if (entryType === "CREDIT_SETTLED") return "CREDIT_SETTLED";
+  return "DIRECT_PAID";
 }
 
 export default function DailySummary() {
@@ -62,9 +71,6 @@ export default function DailySummary() {
     cash: "0.00",
   });
   const [payments, setPayments] = useState<DailyPayment[]>([]);
-  const [lifecycleRows, setLifecycleRows] = useState<DailyCreditLifecycleItem[]>([]);
-  const [aggregationBasis, setAggregationBasis] = useState("date");
-  const [backendDate, setBackendDate] = useState("");
   const [loadError, setLoadError] = useState("");
 
   const asOfDate = todayLocalDate();
@@ -77,17 +83,36 @@ export default function DailySummary() {
     fetchData: fetchDaily,
   });
 
-  const threadedPayments = useMemo(() => {
+  const visiblePayments = useMemo<NormalizedDailyPayment[]>(() => {
     const rowsWithIds = payments.map((payment, index) => ({
       ...payment,
       id: payment.id ?? -1 * (index + 1),
+      supplier: payment.supplier || "Inconnu",
       supplier_id: payment.supplier_id ?? 0,
       date: payment.date ?? date,
-      status: payment.status === "PAID" || payment.status === "CREDIT" ? payment.status : "PAID",
+      status: normalizeStatus(payment.status),
     }));
 
-    return groupPaymentsByCreditThread(rowsWithIds);
+    return rowsWithIds.filter((payment) => payment.status !== "CANCELLED");
   }, [date, payments]);
+
+  const threadedPayments = useMemo(
+    () => groupPaymentsByCreditThread(visiblePayments),
+    [visiblePayments]
+  );
+
+  const entryCount = visiblePayments.length;
+  const paidTransactionCount = visiblePayments.filter((payment) => payment.status === "PAID").length;
+  const creditTransactionCount = visiblePayments.filter(
+    (payment) => payment.status === "CREDIT"
+  ).length;
+  const hasRows = threadedPayments.length > 0;
+
+  const onDateChange = (value: string | null) => {
+    if (value) {
+      setDate(value);
+    }
+  };
 
   useEffect(() => {
     if (dailyData.data) {
@@ -98,9 +123,6 @@ export default function DailySummary() {
         cash: formatAmount(dailyData.data.cash_remaining),
       });
       setPayments(dailyData.data.payments);
-      setLifecycleRows(dailyData.data.credit_lifecycle);
-      setAggregationBasis(dailyData.data.aggregation_basis || "date");
-      setBackendDate(dailyData.data.date || date);
       setLoadError("");
       return;
     }
@@ -113,170 +135,165 @@ export default function DailySummary() {
         cash: "0.00",
       });
       setPayments([]);
-      setLifecycleRows([]);
-      setAggregationBasis("date");
-      setBackendDate("");
       setLoadError(dailyData.error.message);
     }
-  }, [dailyData.data, dailyData.error, date]);
+  }, [dailyData.data, dailyData.error]);
 
   return (
     <section className="daily-page">
-      <div className="top-bar">
-        <div className="date-control">
-          <label>Date</label>
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+      
+      <div className="daily-top-shell">
+        <div className="daily-date-control">
+          <DateInput
+            label="Date"
+            aria-label="Date du journalier"
+            value={date}
+            onChange={onDateChange}
+            valueFormat="DD-MM-YYYY"
+            clearable={false}
+            placeholder="DD-MM-YYYY"
+          />
         </div>
 
-        {loadError ? (
-          <div className="daily-error">Erreur: {loadError}</div>
-        ) : (
-          <div className="totals-card">
-            <div className="total revenue">
-              <span>Recettes</span>
-              <strong>{totals.revenue}</strong>
+        {!loadError && (
+          <div className="daily-kpi-grid">
+            <div className="daily-kpi-card revenue-card">
+              <span className="kpi-label">RECETTES</span>
+              <strong className="kpi-amount">{totals.revenue}</strong>
             </div>
-            <div className="total paid">
-              <span>Paye</span>
-              <strong>{totals.paid}</strong>
+
+            <div className="daily-kpi-card paid-card">
+              <span className="kpi-label">{"PAY\u00c9"}</span>
+              <strong className="kpi-amount">{totals.paid}</strong>
+              <small className="kpi-sub">{paidTransactionCount} transaction(s)</small>
             </div>
-            <div className="total credit">
-              <span>Credit ouvert</span>
-              <strong>{totals.credit}</strong>
+
+            <div className="daily-kpi-card credit-card">
+              <span className="kpi-label">{"CR\u00c9DIT OUVERT"}</span>
+              <strong className="kpi-amount">{totals.credit}</strong>
+              <small className="kpi-sub">{creditTransactionCount} transaction(s)</small>
             </div>
-            <div className="total cash">
-              <span>Cash restant</span>
-              <strong>{totals.cash}</strong>
+
+            <div className="daily-kpi-card cash-card">
+              <span className="kpi-label">CASH RESTANT</span>
+              <strong className="kpi-amount">{totals.cash}</strong>
+              <small className="kpi-sub">Fin de {"journ\u00e9e"}</small>
             </div>
           </div>
         )}
       </div>
 
-      {!loadError && backendDate && (
-        <div className="card daily-meta-card">
-          <p>
-            Date backend: <strong>{backendDate}</strong>
-          </p>
-          <p>
-            Base d&apos;aggregation: <strong>{aggregationBasis}</strong>
-          </p>
-          <p>
-            Statuts calcules au: <strong>{asOfDate}</strong>
-          </p>
+      {loadError && (
+        <div className="state-error" role="alert">
+          Erreur: {loadError}
         </div>
       )}
 
-      <div className="card">
-        <h2>Transactions</h2>
+      <div className="daily-card">
+        <div className="daily-section-title">
+          <h2>Transactions</h2>
+          <span className="daily-section-meta">{threadedPayments.length} groupe(s)</span>
+        </div>
 
-        {dailyData.isLoading && !payments.length ? (
-          <div className="empty-state">Chargement...</div>
-        ) : payments.length === 0 ? (
-          <div className="empty-state">Aucun paiement</div>
-        ) : (
-          <div className="payments-list">
-            {threadedPayments.map((thread) => (
-              <div key={thread.key} className="payment-thread">
-                {thread.creditRootId && (
-                  <div className="thread-header">Chaine credit #{thread.creditRootId}</div>
-                )}
-
-                {thread.items.map((payment) => {
-                  const expectedDate = getCreditExpectedDate(payment);
-                  const originalAmount = getOriginalCreditAmount(payment);
-                  const remainingAmount = getRemainingAmount(payment);
-
-                  return (
-                    <div
-                      key={payment.id}
-                      className={`payment-item ${payment.status.toLowerCase()} ${
-                        thread.creditRootId && thread.root?.id !== payment.id ? "child-row" : ""
-                      }`}
-                    >
-                      <div className="payment-main">
-                        <strong>{payment.supplier}</strong>
-                        <span className="amount">{formatAmount(payment.amount)}</span>
-                      </div>
-
-                      <div className="payment-meta">
-                        <span className={`badge entry-badge ${getEntryTypeClassName(payment)}`}>
-                          <span className="entry-icon">{getEntryTypeIcon(payment)}</span>
-                          {getEntryTypeLabel(payment)}
-                        </span>
-                        <span className="badge status-badge">{payment.status}</span>
-                        <span>Date: {formatDateDDMMYYYY(payment.date)}</span>
-                        {thread.creditRootId && <span>Reference: #{thread.creditRootId}</span>}
-                        {originalAmount !== null && (
-                          <span>Original: {formatAmount(originalAmount)}</span>
-                        )}
-                        {remainingAmount !== null && (
-                          <span>Restant: {formatAmount(remainingAmount)}</span>
-                        )}
-                        {payment.credit_opened_date && (
-                          <span>
-                            Ouvert le: {formatDateDDMMYYYY(payment.credit_opened_date)}
-                          </span>
-                        )}
-                        {expectedDate && (
-                          <span>Prevu le (contexte): {formatDateDDMMYYYY(expectedDate)}</span>
-                        )}
-                        {payment.credit_settled_date && (
-                          <span>
-                            Regle le: {formatDateDDMMYYYY(payment.credit_settled_date)}
-                          </span>
-                        )}
-                        {payment.note && <span>Note: {payment.note}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+        {dailyData.isLoading && !hasRows && (
+          <div className="state-empty" role="status">
+            Chargement...
           </div>
         )}
-      </div>
 
-      <div className="card">
-        <h2>Cycle de vie des credits (statuts calcules a aujourd&apos;hui)</h2>
+        {!dailyData.isLoading && !hasRows && !loadError && (
+          <div className="state-empty" role="status">
+            Aucune transaction pour cette date
+          </div>
+        )}
 
-        {dailyData.isLoading && lifecycleRows.length === 0 ? (
-          <div className="empty-state">Chargement...</div>
-        ) : lifecycleRows.length === 0 ? (
-          <div className="empty-state">Aucun credit sur cette date.</div>
-        ) : (
-          <div className="daily-lifecycle-list">
-            {lifecycleRows.map((item) => (
-              <div className="daily-lifecycle-item" key={item.credit_payment_id}>
-                <div className="daily-lifecycle-head">
-                  <strong>{item.supplier}</strong>
-                  <span
-                    className={`badge lifecycle-status ${item.status
-                      .toLowerCase()
-                      .replace("_", "-")}`}
-                  >
-                    {LIFECYCLE_STATUS_LABELS[item.status]}
-                  </span>
-                </div>
+        {hasRows && (
+          <div className="daily-payments-list">
+            {threadedPayments.map((thread) => {
+              const isChain = thread.creditRootId !== null;
+              const isCrossDateChain = isChain && !thread.hasRoot;
+              const headerSource = thread.root ?? thread.items[0] ?? null;
+              const originalCreditAmount = headerSource
+                ? getOriginalCreditAmount(headerSource)
+                : null;
 
-                <div className="daily-lifecycle-meta">
-                  <span>Credit #{item.credit_payment_id}</span>
-                  <span>Ouvert le: {formatDateDDMMYYYY(item.opened_on)}</span>
-                  {item.expected_payment_date && (
-                    <span>
-                      Date prevue (contexte): {formatDateDDMMYYYY(item.expected_payment_date)}
-                    </span>
+              const chainContextParts: string[] = [];
+              if (headerSource?.supplier) {
+                chainContextParts.push(headerSource.supplier);
+              }
+              if (headerSource?.credit_opened_date) {
+                chainContextParts.push(
+                  `Ouvert le ${formatDateDDMMYYYY(headerSource.credit_opened_date)}`
+                );
+              }
+              if (originalCreditAmount !== null) {
+                chainContextParts.push(`Original: ${formatAmount(originalCreditAmount)}`);
+              }
+
+              return (
+                <div
+                  className={`daily-payment-thread ${
+                    thread.isSettled ? "settled-chain" : "unsettled-chain"
+                  }`}
+                  key={thread.key}
+                >
+                  {isChain && (
+                    <div className={`daily-thread-header ${thread.isSettled ? "settled" : "unsettled"}`}>
+                      <div className="daily-thread-header-line">
+                        <span className="daily-thread-title">
+                          {`Cha\u00eene cr\u00e9dit #${thread.creditRootId}`}
+                        </span>
+                        {thread.isSettled && <StatusBadge status="CREDIT_SETTLED" />}
+                      </div>
+                      {isCrossDateChain && chainContextParts.length > 0 && (
+                        <div className="daily-thread-context">{chainContextParts.join(" \u00b7 ")}</div>
+                      )}
+                    </div>
                   )}
-                  <span>Original: {formatAmount(item.original_credit_amount)}</span>
-                  <span>Paye avant aujourd&apos;hui: {formatAmount(item.paid_before_today)}</span>
-                  <span>Paye aujourd&apos;hui: {formatAmount(item.paid_today)}</span>
-                  <span>Restant apres aujourd&apos;hui: {formatAmount(item.remaining_after_today)}</span>
-                  <span>Delai: {dueInDaysLabel(item.due_in_days)}</span>
-                  {item.credit_settled_date && (
-                    <span>Regle le: {formatDateDDMMYYYY(item.credit_settled_date)}</span>
-                  )}
+
+                  {thread.items.map((payment) => {
+                    const isRoot = Boolean(thread.hasRoot && thread.root?.id === payment.id);
+                    const remainingAmount = getRemainingAmount(payment);
+                    const statusBadge = getRowBadgeStatus(payment, {
+                      isRoot,
+                      isSettledChain: thread.isSettled,
+                    });
+                    const referenceId = thread.creditRootId ?? payment.id;
+
+                    const detailParts = [
+                      formatDateDDMMYYYY(payment.date),
+                      `Ref #${referenceId}`,
+                      remainingAmount !== null ? `Restant ${formatAmount(remainingAmount)}` : null,
+                    ].filter(Boolean) as string[];
+
+                    return (
+                      <div
+                        key={payment.id}
+                        className={`daily-payment-item ${
+                          payment.status === "PAID" ? "paid-row" : "credit-row"
+                        }`}
+                      >
+                        <div className="daily-payment-avatar" title={payment.supplier}>
+                          <SupplierAvatar name={payment.supplier} size={36} />
+                        </div>
+
+                        <div className="daily-payment-main">
+                          <div className="daily-payment-headline">
+                            <div className="daily-supplier-inline">
+                              <strong>{payment.supplier}</strong>
+                              <StatusBadge status={statusBadge} />
+                            </div>
+                          </div>
+                          <div className="daily-payment-details">{detailParts.join(" \u00b7 ")}</div>
+                        </div>
+
+                        <span className="daily-amount">{formatAmount(payment.amount)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

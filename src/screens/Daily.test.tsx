@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
 import DailySummary from "./Daily";
 
 const mockGetDailySummary = vi.fn();
@@ -16,6 +17,22 @@ vi.mock("@/api/summary", async () => {
 });
 
 describe("Daily summary date-first semantics", () => {
+  beforeAll(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetDailySummary.mockResolvedValue({
@@ -35,6 +52,15 @@ describe("Daily summary date-first semantics", () => {
           date: "2026-03-11",
           expected_payment_date: "2026-03-01",
           entry_type: "CREDIT_OPEN",
+        },
+        {
+          id: 8,
+          supplier_id: 5,
+          supplier: "Supplier Cancelled",
+          amount: 80,
+          status: "CANCELLED",
+          date: "2026-03-11",
+          entry_type: "DIRECT_PAID",
         },
       ],
       credit_lifecycle: [
@@ -56,24 +82,35 @@ describe("Daily summary date-first semantics", () => {
     });
   });
 
-  it("shows metadata and lifecycle section from backend response", async () => {
-    render(<DailySummary />);
+  function renderWithMantine() {
+    return render(
+      <MantineProvider>
+        <DailySummary />
+      </MantineProvider>
+    );
+  }
 
-    expect(await screen.findByText(/Date backend/i)).toBeInTheDocument();
-    expect(screen.getByText(/Base d'aggregation/i)).toBeInTheDocument();
-    expect(
-      screen.getByText("Cycle de vie des credits (statuts calcules a aujourd'hui)")
-    ).toBeInTheDocument();
-    expect(screen.getByText("Echeance proche")).toBeInTheDocument();
+  it("shows date selector, KPI cards, and threaded transactions", async () => {
+    renderWithMantine();
+
+    expect(await screen.findByLabelText("Date du journalier")).toBeInTheDocument();
+    expect(await screen.findByText(/Cha.*cr.*dit #7/i)).toBeInTheDocument();
+    expect(screen.getByText("RECETTES")).toBeInTheDocument();
+    expect(screen.getByText(/PAY/i)).toBeInTheDocument();
+    expect(screen.getByText(/CR.*DIT OUVERT/i)).toBeInTheDocument();
+    expect(screen.getByText(/CASH RESTANT/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 .*ntr.*\(s\)/i)).toBeInTheDocument();
+    expect(screen.getByText("0 transaction(s)")).toBeInTheDocument();
+    expect(screen.getAllByText("250.00").length).toBeGreaterThan(1);
   });
 
-  it("does not flag transaction rows as overdue from expected payment date", async () => {
-    const { container } = render(<DailySummary />);
+  it("filters cancelled payments before rendering transaction rows", async () => {
+    renderWithMantine();
 
     await waitFor(() => {
       expect(screen.getByText("Transactions")).toBeInTheDocument();
     });
 
-    expect(container.querySelector(".payment-item.overdue")).toBeNull();
+    expect(screen.queryByText("Supplier Cancelled")).not.toBeInTheDocument();
   });
 });

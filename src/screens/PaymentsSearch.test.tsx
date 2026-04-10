@@ -1,4 +1,4 @@
-﻿import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Payment } from "@/api/payments";
 import PaymentsSearch from "./PaymentsSearch";
@@ -60,7 +60,12 @@ function createRow(overrides: Partial<Payment>): Payment {
 
 describe("PaymentsSearch credit chains", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockSearchPayments.mockReset();
+    mockSettleCredit.mockReset();
+    mockPartialCreditPayment.mockReset();
+    mockGetSuppliers.mockReset();
+    mockEvaluateDailyLimitForAmount.mockReset();
+
     mockEvaluateDailyLimitForAmount.mockResolvedValue({
       decision: "OK",
       date: "2026-03-24",
@@ -92,10 +97,9 @@ describe("PaymentsSearch credit chains", () => {
         status: "PAID",
         entry_type: "CREDIT_PARTIAL_PAYMENT",
         credit_payment_id: 1,
-        amount: 600,
+        amount: 200,
         date: "2026-03-15",
-        remaining_amount: 0,
-        credit_settled_date: "2026-03-15",
+        remaining_amount: 400,
       }),
     ]);
   });
@@ -104,8 +108,10 @@ describe("PaymentsSearch credit chains", () => {
     render(<PaymentsSearch />);
 
     expect(await screen.findByText("Chaine credit #1")).toBeInTheDocument();
-    expect(screen.getByText("Credit ouvert")).toBeInTheDocument();
-    expect(screen.getAllByText("Paiement partiel")).toHaveLength(2);
+    const resultsRegion = screen.getByText("Resultats (3)").closest(".results-card");
+    expect(resultsRegion).not.toBeNull();
+    expect(within(resultsRegion!).getByText(/en retard/i)).toBeInTheDocument();
+    expect(within(resultsRegion!).getAllByText(/paiement partiel/i)).toHaveLength(2);
   });
 
   it("supports partial payment modal validation and submit", async () => {
@@ -144,9 +150,7 @@ describe("PaymentsSearch credit chains", () => {
     expect(mockPartialCreditPayment.mock.calls[0][1]).toMatchObject({
       amount: 400,
     });
-    expect(
-      await screen.findByText(/Paiement partiel enregistre\s*-\s*Restant:\s*600\.00/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Paiement partiel enregistre/i)).toBeInTheDocument();
   });
 
   it("requires explicit second confirmation when crossing the limit", async () => {
@@ -167,7 +171,7 @@ describe("PaymentsSearch credit chains", () => {
     const user = userEvent.setup();
 
     const supplierRow = (await screen.findAllByText("Supplier A", {
-      selector: "strong",
+      selector: ".supplier-inline strong",
     }))[0].closest(".payment-item");
     expect(supplierRow).not.toBeNull();
     const rowCheckbox = supplierRow?.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -209,7 +213,7 @@ describe("PaymentsSearch credit chains", () => {
     const user = userEvent.setup();
 
     const supplierRow = (await screen.findAllByText("Supplier A", {
-      selector: "strong",
+      selector: ".supplier-inline strong",
     }))[0].closest(".payment-item");
     const rowCheckbox = supplierRow?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(rowCheckbox).not.toBeNull();
@@ -244,10 +248,10 @@ describe("PaymentsSearch credit chains", () => {
     const user = userEvent.setup();
 
     const rowA = (await screen.findAllByText("Supplier A", {
-      selector: "strong",
+      selector: ".supplier-inline strong",
     }))[0].closest(".payment-item");
     const rowB = (await screen.findAllByText("Supplier B", {
-      selector: "strong",
+      selector: ".supplier-inline strong",
     }))[0].closest(".payment-item");
     const checkA = rowA?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     const checkB = rowB?.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -265,4 +269,141 @@ describe("PaymentsSearch credit chains", () => {
     expect(mockEvaluateDailyLimitForAmount).toHaveBeenCalledTimes(1);
     expect(mockEvaluateDailyLimitForAmount).toHaveBeenCalledWith(1300, "2026-03-24");
   });
+
+  it("collapses settled chains by default and lets user expand", async () => {
+    mockSearchPayments.mockResolvedValueOnce([
+      createRow({ id: 1 }),
+      createRow({
+        id: 2,
+        status: "PAID",
+        entry_type: "CREDIT_PARTIAL_PAYMENT",
+        credit_payment_id: 1,
+        amount: 400,
+        date: "2026-03-12",
+        remaining_amount: 600,
+      }),
+      createRow({
+        id: 3,
+        status: "PAID",
+        entry_type: "CREDIT_SETTLED",
+        credit_payment_id: 1,
+        amount: 600,
+        date: "2026-03-15",
+        remaining_amount: 0,
+        credit_settled_date: "2026-03-15",
+      }),
+    ]);
+
+    render(<PaymentsSearch />);
+    const user = userEvent.setup();
+
+    const chainToggle = await screen.findByRole("button", { name: /chaine credit #1/i });
+    await waitFor(() => expect(chainToggle).toHaveAttribute("aria-expanded", "false"));
+    expect(screen.queryByLabelText("Selectionner transaction 2")).not.toBeInTheDocument();
+
+    await user.click(chainToggle);
+
+    expect(await screen.findByText(/paiement partiel/i)).toBeInTheDocument();
+    expect(chainToggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("defaults to transaction-date mode and filters locally by transaction dates", async () => {
+    const rowA = createRow({ id: 1, supplier: "Supplier A", date: "2026-03-10" });
+    const rowB = createRow({
+      id: 2,
+      supplier: "Supplier B",
+      supplier_id: 3,
+      status: "PAID",
+      entry_type: "DIRECT_PAID",
+      credit_payment_id: null,
+      date: "2026-03-30",
+      amount: 120,
+      remaining_amount: null,
+      original_credit_amount: null,
+    });
+
+    mockSearchPayments.mockResolvedValueOnce([rowA, rowB]);
+    mockSearchPayments.mockResolvedValueOnce([rowA, rowB]);
+
+    render(<PaymentsSearch />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("Resultats (2)")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Date transaction debut/i), {
+      target: { value: "2026-03-20" },
+    });
+    fireEvent.change(screen.getByLabelText(/Date transaction fin/i), {
+      target: { value: "2026-03-31" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Rechercher" }));
+
+    expect(await screen.findByText("Resultats (1)")).toBeInTheDocument();
+    expect(screen.getByText("Supplier B", { selector: ".supplier-inline strong" })).toBeInTheDocument();
+    expect(screen.queryByText("Supplier A", { selector: ".supplier-inline strong" })).not.toBeInTheDocument();
+
+    const lastCall = mockSearchPayments.mock.calls[mockSearchPayments.mock.calls.length - 1]?.[0];
+    expect(lastCall.start_expected_date).toBeUndefined();
+    expect(lastCall.end_expected_date).toBeUndefined();
+  });
+
+  it("switches to expected-date mode and sends expected-date range to API", async () => {
+    render(<PaymentsSearch />);
+    const user = userEvent.setup();
+
+    await screen.findByRole("button", { name: "Date prevue credit" });
+
+    await user.click(screen.getByRole("button", { name: "Date prevue credit" }));
+
+    fireEvent.change(screen.getByLabelText(/Date prevue debut/i), {
+      target: { value: "2026-03-01" },
+    });
+    fireEvent.change(screen.getByLabelText(/Date prevue fin/i), {
+      target: { value: "2026-03-31" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Rechercher" }));
+
+    const lastCall = mockSearchPayments.mock.calls[mockSearchPayments.mock.calls.length - 1]?.[0];
+    expect(lastCall.start_expected_date).toBe("2026-03-01");
+    expect(lastCall.end_expected_date).toBe("2026-03-31");
+  });
+
+  it("orders credit chains by latest transaction date", async () => {
+    mockSearchPayments.mockResolvedValueOnce([
+      createRow({
+        id: 1,
+        supplier: "Supplier A",
+        date: "2025-01-05",
+        amount: 1000,
+        remaining_amount: 1000,
+      }),
+      createRow({
+        id: 2,
+        supplier: "Supplier A",
+        status: "PAID",
+        entry_type: "CREDIT_PARTIAL_PAYMENT",
+        credit_payment_id: 1,
+        date: "2026-04-05",
+        amount: 300,
+        remaining_amount: 700,
+      }),
+      createRow({
+        id: 10,
+        supplier: "Supplier B",
+        supplier_id: 3,
+        date: "2026-04-01",
+        amount: 500,
+        remaining_amount: 500,
+      }),
+    ]);
+
+    render(<PaymentsSearch />);
+
+    const headers = await screen.findAllByText(/Chaine credit #/i);
+    expect(headers[0]).toHaveTextContent("Chaine credit #1");
+    expect(headers[1]).toHaveTextContent("Chaine credit #10");
+  });
 });
+

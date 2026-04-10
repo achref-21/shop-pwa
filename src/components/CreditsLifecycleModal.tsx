@@ -4,7 +4,6 @@ import { useDateAwareCachedData } from "@/hooks/useDateAwareCachedData";
 import {
   getCreditsLifecycle,
   type CreditLifecycleStatus,
-  type CreditsLifecycleResponse,
   type PeriodCreditLifecycleItem,
 } from "@/api/summary";
 import { formatAmount, formatDateDDMMYYYY } from "@/utils/paymentDisplay";
@@ -33,14 +32,40 @@ function formatDueInDays(value: number | null): string {
   }
 
   if (value > 0) {
-    return `Dans ${value} j`;
+    return `Dans ${value}j`;
   }
 
   if (value === 0) {
     return "Echeance aujourd'hui";
   }
 
-  return `${Math.abs(value)} j de retard`;
+  return `Retard ${Math.abs(value)}j`;
+}
+
+function getStatusBadge(
+  row: PeriodCreditLifecycleItem
+): { label: string; tone: "success" | "warning" | "danger" | "info"; emphasize?: boolean } {
+  if (row.status === "SETTLED") {
+    return { label: STATUS_LABELS[row.status], tone: "success" };
+  }
+
+  if (row.status === "OVERDUE") {
+    return { label: STATUS_LABELS[row.status], tone: "danger" };
+  }
+
+  if (row.status === "DUE_SOON") {
+    if (row.due_in_days === 0) {
+      return { label: "Echeance aujourd'hui", tone: "warning", emphasize: true };
+    }
+
+    if (typeof row.due_in_days === "number" && row.due_in_days > 0) {
+      return { label: `Echeance proche (Dans ${row.due_in_days}j)`, tone: "warning" };
+    }
+
+    return { label: STATUS_LABELS[row.status], tone: "warning" };
+  }
+
+  return { label: STATUS_LABELS[row.status], tone: "info" };
 }
 
 export default function CreditsLifecycleModal({ startDate, endDate, mode, onClose }: Props) {
@@ -48,7 +73,6 @@ export default function CreditsLifecycleModal({ startDate, endDate, mode, onClos
 
   const [asOfDate] = useState(() => todayLocalDate());
   const [rows, setRows] = useState<PeriodCreditLifecycleItem[]>([]);
-  const [meta, setMeta] = useState<CreditsLifecycleResponse | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -67,14 +91,12 @@ export default function CreditsLifecycleModal({ startDate, endDate, mode, onClos
 
   useEffect(() => {
     if (lifecycleData.data) {
-      setMeta(lifecycleData.data);
       setRows(lifecycleData.data.credits);
       setLoadError("");
       return;
     }
 
     if (lifecycleData.error) {
-      setMeta(null);
       setRows([]);
       setLoadError(lifecycleData.error.message);
     }
@@ -102,20 +124,6 @@ export default function CreditsLifecycleModal({ startDate, endDate, mode, onClos
         <h2>
           Cycle des credits - {startDate} {"->"} {endDate}
         </h2>
-
-        <p className="lifecycle-meta-line">
-          Statuts calcules au: <strong>{formatDateDDMMYYYY(asOfDate)}</strong>
-        </p>
-        {meta && (
-          <>
-            <p className="lifecycle-meta-line">
-              Periode backend: <strong>{meta.period_start}</strong> {"->"} <strong>{meta.period_end}</strong>
-            </p>
-            <p className="lifecycle-meta-line">
-              Base d&apos;aggregation: <strong>{meta.aggregation_basis}</strong>
-            </p>
-          </>
-        )}
 
         <div className="lifecycle-filters">
           <label>
@@ -158,32 +166,47 @@ export default function CreditsLifecycleModal({ startDate, endDate, mode, onClos
           <div className="lifecycle-empty">Aucun credit pour cette periode.</div>
         ) : (
           <div className="lifecycle-list">
-            {filteredRows.map((row) => (
-              <div className="lifecycle-item" key={row.credit_payment_id}>
-                <div className="lifecycle-item-head">
-                  <strong>{row.supplier}</strong>
-                  <span className={`badge lifecycle-status ${row.status.toLowerCase().replace("_", "-")}`}>
-                    {STATUS_LABELS[row.status]}
-                  </span>
-                </div>
+            {filteredRows.map((row) => {
+              const badge = getStatusBadge(row);
+              const isSettled = row.status === "SETTLED";
 
-                <div className="lifecycle-item-details">
-                  <span>Credit #{row.credit_payment_id}</span>
-                  <span>Ouvert le: {formatDateDDMMYYYY(row.opened_on)}</span>
-                  {row.expected_payment_date && (
-                    <span>Date prevue (contexte): {formatDateDDMMYYYY(row.expected_payment_date)}</span>
-                  )}
-                  <span>Original: {formatAmount(row.original_credit_amount)}</span>
-                  <span>Paye avant debut: {formatAmount(row.paid_before_start)}</span>
-                  <span>Paye dans la periode: {formatAmount(row.paid_in_period)}</span>
-                  <span>Restant fin periode: {formatAmount(row.remaining_as_of_end)}</span>
-                  <span>Delai: {formatDueInDays(row.due_in_days)}</span>
-                  {row.credit_settled_date && (
-                    <span>Regle le: {formatDateDDMMYYYY(row.credit_settled_date)}</span>
-                  )}
+              return (
+                <div className="lifecycle-item" key={row.credit_payment_id}>
+                  <div className="lifecycle-item-head">
+                    <strong>{row.supplier}</strong>
+                    <span
+                      className={`badge lifecycle-status ${badge.tone} ${badge.emphasize ? "emphasis" : ""}`}
+                    >
+                      {badge.label}
+                    </span>
+                  </div>
+
+                  <div className="lifecycle-item-core">
+                    <span>Credit #{row.credit_payment_id}</span>
+                    <span>Montant original: {formatAmount(row.original_credit_amount)}</span>
+                  </div>
+
+                  <div className="lifecycle-item-details">
+                    {!isSettled && row.expected_payment_date && (
+                      <span>Prevu le: {formatDateDDMMYYYY(row.expected_payment_date)}</span>
+                    )}
+                    {!isSettled && <span>Delai: {formatDueInDays(row.due_in_days)}</span>}
+                    {isSettled && row.credit_settled_date && (
+                      <span>Regle le: {formatDateDDMMYYYY(row.credit_settled_date)}</span>
+                    )}
+                    {row.paid_before_start > 0 && (
+                      <span>Paye avant debut: {formatAmount(row.paid_before_start)}</span>
+                    )}
+                    {row.paid_in_period > 0 && (
+                      <span>Paye dans la periode: {formatAmount(row.paid_in_period)}</span>
+                    )}
+                    {!isSettled && (
+                      <span>Restant fin periode: {formatAmount(row.remaining_as_of_end)}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

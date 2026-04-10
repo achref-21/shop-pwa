@@ -17,9 +17,10 @@ export function SupplierAvatar({ name, size = 36 }: SupplierAvatarProps) {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(46, 196, 182, 0.15)",
+        backgroundColor:
+          "color-mix(in srgb, var(--color-accent) 16%, var(--color-surface))",
         color: "var(--color-accent)",
-        fontFamily: "Outfit, sans-serif",
+        fontFamily: "var(--font-display)",
         fontWeight: 600,
         fontSize: `${fontSize}px`,
         lineHeight: 1,

@@ -1,28 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOnline } from "@/hooks/useOnline";
-import { useDateAwareCachedData } from "@/hooks/useDateAwareCachedData";
-import "./Revenue.css";
+import { Button, NumberInput, TextInput } from "@mantine/core";
+import { DateInput } from "@mantine/dates";
+import { notifications } from "@mantine/notifications";
 import { getRevenue, saveRevenue as apiSaveRevenue } from "@/api/revenue";
+import { useDateAwareCachedData } from "@/hooks/useDateAwareCachedData";
+import { useOnline } from "@/hooks/useOnline";
+import { todayLocalDate } from "@/utils/localDate";
+import "./Revenue.css";
+
+function toAmountString(value: number): string {
+  return value.toFixed(2);
+}
+
+function normalizeAmount(value: string): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
+}
 
 export default function Revenue() {
   const isOnline = useOnline();
 
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
-
-  const [amount, setAmount] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string>(todayLocalDate());
+  const [amount, setAmount] = useState<string>("0.00");
   const [note, setNote] = useState("");
-  const [loadError, setLoadError] = useState<string>("");
+  const [loadError, setLoadError] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
-  /* ─────────────────────────────
-     Load revenue with date-aware caching
-  ───────────────────────────── */
-  // Memoize fetchData to prevent infinite loops
-  const fetchRevenue = useCallback(
-    () => getRevenue(selectedDate),
-    [selectedDate]
-  );
+  const fetchRevenue = useCallback(() => getRevenue(selectedDate), [selectedDate]);
 
   const revenueData = useDateAwareCachedData({
     isOnline,
@@ -31,120 +36,137 @@ export default function Revenue() {
   });
 
   useEffect(() => {
-    if (revenueData.data !== undefined) {
-      if (revenueData.data) {
-        setAmount(revenueData.data.amount.toString());
-        setNote(revenueData.data.note ?? "");
-      } else {
-        setAmount("");
-        setNote("");
-      }
+    if (revenueData.data) {
+      setAmount(toAmountString(revenueData.data.amount));
+      setNote(revenueData.data.note ?? "");
       setLoadError("");
-    } else if (revenueData.error) {
-      setLoadError(revenueData.error.message);
+      return;
     }
+
+    if (revenueData.error) {
+      setLoadError(revenueData.error.message);
+      return;
+    }
+
+    setAmount("0.00");
+    setNote("");
+    setLoadError("");
   }, [revenueData.data, revenueData.error]);
 
-  /* ─────────────────────────────
-     Save revenue (mirrors desktop)
-  ───────────────────────────── */
+  const onDateChange = (value: string | null) => {
+    if (value) {
+      setSelectedDate(value);
+    }
+  };
+
+  const onAmountChange = (value: string | number) => {
+    if (value === "") {
+      setAmount("");
+      return;
+    }
+
+    setAmount(String(value));
+  };
+
+  const onAmountBlur = () => {
+    setAmount((previous) => normalizeAmount(previous));
+  };
+
   async function handleSave() {
-    if (!amount.trim()) return;
+    setSubmitError("");
+    setIsSaving(true);
 
     try {
       await apiSaveRevenue({
         date: selectedDate,
-        amount,
+        amount: normalizeAmount(amount),
         note,
       });
 
-      alert("Recettes enregistrées avec succès.");
-      // Reload instead of manually setting
-      revenueData.data; // Just to trigger refresh
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l’enregistrement.");
+      setAmount((previous) => normalizeAmount(previous));
+      notifications.show({
+        title: "Succès",
+        message: "Recettes enregistrées avec succès.",
+        color: "teal",
+        autoClose: 2500,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erreur lors de l’enregistrement.";
+      setSubmitError(message);
+    } finally {
+      setIsSaving(false);
     }
   }
-  /* ─────────────────────────────
-     Render
-  ───────────────────────────── */
+
   return (
     <section className="revenue-page">
-
-      {/* ───────────────── Top Bar ───────────────── */}
-      <div className="top-bar">
-        <div className="date-control">
-          <label>Date</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={e => setSelectedDate(e.target.value)}
-          />
-        </div>
+      <div className="date-control">
+        <DateInput
+          label="Date"
+          aria-label="Date des recettes"
+          value={selectedDate}
+          onChange={onDateChange}
+          valueFormat="YYYY-MM-DD"
+          clearable={false}
+          placeholder="AAAA-MM-JJ"
+        />
       </div>
 
-      {/* ───────────────── Revenue Form Card ───────────────── */}
-      <div className="card">
-        <h2>Recettes du jour</h2>
+      <div className="card revenue-form-card">
+        <div className="section-title">
+          <h2>Recettes du jour</h2>
+        </div>
 
         {loadError && (
-          <div style={{
-            padding: "1rem",
-            marginBottom: "1rem",
-            background: "#fef2f2",
-            border: "1px solid #fca5a5",
-            borderRadius: "8px",
-            color: "#991b1b",
-            fontSize: "0.9rem"
-          }}>
-            ⚠️ {loadError}
+          <div className="state-error" role="alert">
+            Erreur: {loadError}
           </div>
         )}
 
-        {revenueData.isLoading && !amount && (
-          <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>
-            Chargement...
+        {submitError && (
+          <div className="state-error" role="alert">
+            Erreur: {submitError}
           </div>
         )}
 
         <form
           className="form-grid"
-          onSubmit={e => {
-            e.preventDefault();
-            handleSave();
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
           }}
         >
-          {/* Amount */}
           <div className="field">
-            <label>Montant</label>
-            <input
-              type="number"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
+            <NumberInput
+              label="Montant"
+              value={amount === "" ? "" : Number(amount)}
+              min={0}
+              step={0.01}
+              decimalScale={2}
+              fixedDecimalScale
+              onChange={onAmountChange}
+              onBlur={onAmountBlur}
               placeholder="0.00"
             />
           </div>
 
-          {/* Note */}
           <div className="field full">
-            <label>Note</label>
-            <input
+            <TextInput
+              label="Note"
               value={note}
-              onChange={e => setNote(e.target.value)}
+              onChange={(event) => setNote(event.currentTarget.value)}
               placeholder="Notes optionnelles"
             />
           </div>
 
-          {/* Submit */}
           <div className="form-actions full">
-            <button className="primary" type="submit">
+            <Button className="submit-revenue" type="submit" loading={isSaving}>
               Enregistrer
-            </button>
+            </Button>
           </div>
         </form>
       </div>
-
     </section>
   );
 }

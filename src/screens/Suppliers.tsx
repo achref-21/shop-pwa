@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { TextInput } from "@mantine/core";
+import { IconSearch } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import SupplierDialog from "../components/SupplierDialog";
+import SupplierAvatar from "@/components/SupplierAvatar";
 import "./Suppliers.css";
 import {
   createSupplier,
@@ -7,6 +10,7 @@ import {
   getSuppliersWithCredit,
   updateSupplier,
 } from "@/api/suppliers";
+import { formatAmount } from "@/utils/paymentDisplay";
 
 type Supplier = {
   id: number;
@@ -22,16 +26,29 @@ export default function Suppliers() {
   const [totalCredit, setTotalCredit] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [searchValue, setSearchValue] = useState("");
+
+  const refreshSuppliers = useCallback(async () => {
+    const data = await getSuppliersWithCredit();
+    setSuppliers(data);
+    const total = data.reduce((sum, supplier) => sum + supplier.credit_total, 0);
+    setTotalCredit(total);
+  }, []);
 
   useEffect(() => {
-    getSuppliersWithCredit()
-      .then((data) => {
-        setSuppliers(data);
-        const total = data.reduce((sum, supplier) => sum + supplier.credit_total, 0);
-        setTotalCredit(total);
-      })
-      .catch(console.error);
-  }, []);
+    refreshSuppliers().catch(console.error);
+  }, [refreshSuppliers]);
+
+  const normalizedSearch = searchValue.trim().toLocaleLowerCase();
+  const filteredSuppliers = useMemo(() => {
+    if (!normalizedSearch) {
+      return suppliers;
+    }
+
+    return suppliers.filter((supplier) =>
+      supplier.name.toLocaleLowerCase().includes(normalizedSearch)
+    );
+  }, [normalizedSearch, suppliers]);
 
   function toggleSelection(id: number) {
     setSelectedIds((prev) =>
@@ -60,10 +77,7 @@ export default function Suppliers() {
       await apiDeleteSupplier(id);
     }
 
-    const refreshed = await getSuppliersWithCredit();
-    setSuppliers(refreshed);
-    const total = refreshed.reduce((sum, supplier) => sum + supplier.credit_total, 0);
-    setTotalCredit(total);
+    await refreshSuppliers();
     setSelectedIds([]);
   }
 
@@ -75,66 +89,89 @@ export default function Suppliers() {
   return (
     <section className="suppliers-page">
       <div className="top-bar">
-        <div className="totals-card">
-          <div className="total credit">
-            <span>Credit en cours</span>
-            <strong>{totalCredit.toFixed(2)}</strong>
-          </div>
+        <div className="card totals-card">
+          <span className="card-eyebrow">CREDIT OUVERT</span>
+          <strong className="total-amount">{formatAmount(totalCredit)}</strong>
         </div>
+
+
       </div>
 
-      <div className="card">
-        <h2>Ajouter un fournisseur</h2>
-
-        <div className="form-actions">
-          <button className="primary" onClick={openAddDialog}>
+      <div className="card suppliers-card">
+        <div className="suppliers-header">
+          <h2>Fournisseurs</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+          <button type="button" className="primary" style={{ marginLeft: 'auto' }} onClick={openAddDialog}>
             Ajouter
           </button>
+          <span className="suppliers-count">{filteredSuppliers.length}</span>
+          </div>
         </div>
-      </div>
 
-      <div className="card">
-        <h2>Fournisseurs avec credit en cours</h2>
+        <TextInput
+          className="supplier-search"
+          aria-label="Rechercher un fournisseur"
+          leftSection={<IconSearch size={16} stroke={1.8} aria-hidden="true" />}
+          placeholder="Rechercher un fournisseur…"
+          value={searchValue}
+          onChange={(event) => setSearchValue(event.currentTarget.value)}
+        />
 
-        <div className="suppliers-list">
-          {suppliers.map((supplier) => (
-            <div key={supplier.id} className="supplier-item">
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(supplier.id)}
-                onChange={() => toggleSelection(supplier.id)}
-              />
+        <div className="suppliers-list" role="list" aria-label="Liste des fournisseurs">
+          {filteredSuppliers.length === 0 ? (
+            <p className="suppliers-empty">Aucun fournisseur enregistré.</p>
+          ) : (
+            filteredSuppliers.map((supplier) => (
+              <div
+                key={supplier.id}
+                className={`supplier-item ${selectedIds.includes(supplier.id) ? "is-selected" : ""}`}
+                role="listitem"
+              >
+                <div className="supplier-main">
+                  <SupplierAvatar name={supplier.name} size={40} />
+                  <strong>{supplier.name}</strong>
+                </div>
 
-              <div className="supplier-main">
-                <strong>{supplier.name}</strong>
+                <span
+                  className={`supplier-credit ${supplier.credit_total === 0 ? "is-zero" : ""}`}
+                >
+                  {formatAmount(supplier.credit_total)}
+                </span>
+
+                <input
+                  className="supplier-select"
+                  type="checkbox"
+                  checked={selectedIds.includes(supplier.id)}
+                  onChange={() => toggleSelection(supplier.id)}
+                  aria-label={`Selectionner ${supplier.name}`}
+                />
               </div>
-
-              <div className="supplier-meta">
-                {supplier.phone && <span className="phone">{supplier.phone}</span>}
-                {supplier.notes && <span className="notes">{supplier.notes}</span>}
-                <span className="credit">{supplier.credit_total.toFixed(2)}</span>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 
       <div className="action-bar">
-        <button
-          className="secondary"
-          disabled={selectedIds.length !== 1}
-          onClick={openEditDialog}
-        >
-          Modifier
-        </button>
+        <p className="selection-hint">{selectedIds.length} selectionne(s)</p>
+        <div className="action-buttons">
+          <button
+            className="secondary"
+            type="button"
+            disabled={selectedIds.length !== 1}
+            onClick={openEditDialog}
+          >
+            Modifier
+          </button>
 
-        <button
-          className="danger"
-          disabled={selectedIds.length === 0}
-          onClick={deleteSelected}
-        >
-          Supprimer
-        </button>
+          <button
+            className="danger"
+            type="button"
+            disabled={selectedIds.length === 0}
+            onClick={deleteSelected}
+          >
+            Supprimer
+          </button>
+        </div>
       </div>
 
       {dialogOpen && (
@@ -157,10 +194,7 @@ export default function Suppliers() {
               await createSupplier(data);
             }
 
-            const refreshed = await getSuppliersWithCredit();
-            setSuppliers(refreshed);
-            const total = refreshed.reduce((sum, supplier) => sum + supplier.credit_total, 0);
-            setTotalCredit(total);
+            await refreshSuppliers();
             closeDialog();
           }}
         />

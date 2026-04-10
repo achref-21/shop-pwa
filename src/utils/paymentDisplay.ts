@@ -26,9 +26,9 @@ export type PaymentThread<T extends PaymentLike> = {
 };
 
 const ENTRY_TYPE_LABELS: Record<EntryType, string> = {
-  CREDIT_OPEN: "Credit ouvert",
+  CREDIT_OPEN: "Crédit ouvert",
   CREDIT_PARTIAL_PAYMENT: "Paiement partiel",
-  CREDIT_SETTLED: "Reglement final",
+  CREDIT_SETTLED: "Crédit réglé",
   DIRECT_PAID: "Paiement direct",
 };
 

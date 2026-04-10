@@ -8,13 +8,12 @@ import {
   formatAmount,
   formatDateDDMMYYYY,
   getCreditExpectedDate,
-  getEntryTypeClassName,
-  getEntryTypeIcon,
   getEntryTypeLabel,
-  getOriginalCreditAmount,
   getRemainingAmount,
   groupPaymentsByCreditThread,
+  inferEntryType,
 } from "@/utils/paymentDisplay";
+import { parseLocalDate, todayLocalDate } from "@/utils/localDate";
 import "./SupplierTransactionsModal.css";
 
 type Props = {
@@ -40,6 +39,56 @@ type Transaction = {
   credit_expected_payment_date?: string | null;
   credit_settled_date?: string | null;
 };
+
+function normalizeIsoDate(dateStr?: string | null): string | null {
+  if (!dateStr) {
+    return null;
+  }
+
+  if (dateStr.includes("T")) {
+    return dateStr.split("T")[0];
+  }
+
+  return dateStr;
+}
+
+function getBadgeTone(
+  row: Transaction
+): { tone: "success" | "warning" | "danger" | "info"; emphasize?: boolean } {
+  const entryType = inferEntryType(row);
+
+  if (entryType === "DIRECT_PAID" || entryType === "CREDIT_SETTLED") {
+    return { tone: "success" };
+  }
+
+  const remainingAmount = getRemainingAmount(row);
+  if (remainingAmount === 0 || Boolean(row.credit_settled_date)) {
+    return { tone: "success" };
+  }
+
+  const expectedDate = normalizeIsoDate(getCreditExpectedDate(row));
+  if (!expectedDate) {
+    return { tone: "info" };
+  }
+
+  const today = todayLocalDate();
+  if (expectedDate < today) {
+    return { tone: "danger" };
+  }
+
+  if (expectedDate === today) {
+    return { tone: "warning", emphasize: true };
+  }
+
+  const dayDiff = Math.round(
+    (parseLocalDate(expectedDate).getTime() - parseLocalDate(today).getTime()) / 86400000
+  );
+  if (dayDiff <= 3) {
+    return { tone: "warning" };
+  }
+
+  return { tone: "info" };
+}
 
 export default function SupplierTransactionsModal({ supplier, start, end, onClose }: Props) {
   const isOnline = useOnline();
@@ -100,8 +149,29 @@ export default function SupplierTransactionsModal({ supplier, start, end, onClos
 
                 {thread.items.map((row) => {
                   const expectedDate = getCreditExpectedDate(row);
-                  const originalAmount = getOriginalCreditAmount(row);
                   const remainingAmount = getRemainingAmount(row);
+                  const entryType = inferEntryType(row);
+                  const badgeTone = getBadgeTone(row);
+                  const rowDate = normalizeIsoDate(row.date);
+                  const settledDate = normalizeIsoDate(row.credit_settled_date);
+                  const hasSettledDateDetail =
+                    entryType === "CREDIT_SETTLED" &&
+                    settledDate &&
+                    settledDate !== rowDate;
+
+                  const detailItems: string[] = [];
+                  if (entryType === "CREDIT_OPEN" && expectedDate) {
+                    detailItems.push(`Prevu le: ${formatDateDDMMYYYY(expectedDate)}`);
+                  }
+                  if (entryType === "CREDIT_PARTIAL_PAYMENT" && remainingAmount !== null) {
+                    detailItems.push(`Restant apres paiement: ${formatAmount(remainingAmount)}`);
+                  }
+                  if (hasSettledDateDetail) {
+                    detailItems.push(`Regle le: ${formatDateDDMMYYYY(settledDate)}`);
+                  }
+                  if (row.note) {
+                    detailItems.push(`Note: ${row.note}`);
+                  }
 
                   return (
                     <div
@@ -112,32 +182,23 @@ export default function SupplierTransactionsModal({ supplier, start, end, onClos
                     >
                       <div className="transaction-headline">
                         <strong>{formatDateDDMMYYYY(row.date)}</strong>
-                        <span>{formatAmount(row.amount)}</span>
-                      </div>
-
-                      <div className="transaction-badges">
-                        <span className={`badge entry-badge ${getEntryTypeClassName(row)}`}>
-                          <span className="entry-icon">{getEntryTypeIcon(row)}</span>
+                        <span className="transaction-amount">{formatAmount(row.amount)}</span>
+                        <span
+                          className={`badge entry-badge ${badgeTone.tone} ${
+                            badgeTone.emphasize ? "emphasis" : ""
+                          }`}
+                        >
                           {getEntryTypeLabel(row)}
                         </span>
-                        <span className="badge status-badge">{row.status}</span>
                       </div>
 
-                      <div className="transaction-details">
-                        {thread.creditRootId && <span>Reference credit: #{thread.creditRootId}</span>}
-                        {originalAmount !== null && <span>Original: {formatAmount(originalAmount)}</span>}
-                        {remainingAmount !== null && <span>Restant: {formatAmount(remainingAmount)}</span>}
-                        {row.credit_opened_date && (
-                          <span>Ouvert le: {formatDateDDMMYYYY(row.credit_opened_date)}</span>
-                        )}
-                        {expectedDate && (
-                          <span>Prevu le (contexte): {formatDateDDMMYYYY(expectedDate)}</span>
-                        )}
-                        {row.credit_settled_date && (
-                          <span>Regle le: {formatDateDDMMYYYY(row.credit_settled_date)}</span>
-                        )}
-                        {row.note && <span>Note: {row.note}</span>}
-                      </div>
+                      {detailItems.length > 0 && (
+                        <div className="transaction-details">
+                          {detailItems.map((item) => (
+                            <span key={item}>{item}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

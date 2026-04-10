@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
 import PeriodSummary from "./PeriodSummary";
 
 const mockGetPeriodSummary = vi.fn();
@@ -26,6 +27,30 @@ vi.mock("@/components/CreditsLifecycleModal", () => ({
 }));
 
 describe("PeriodSummary totals semantics", () => {
+  beforeAll(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetPeriodSummary.mockResolvedValue({
@@ -63,8 +88,16 @@ describe("PeriodSummary totals semantics", () => {
     });
   });
 
+  function renderWithMantine() {
+    return render(
+      <MantineProvider>
+        <PeriodSummary />
+      </MantineProvider>
+    );
+  }
+
   it("uses period summary paid/credit values for grand total row", async () => {
-    const { container } = render(<PeriodSummary />);
+    const { container } = renderWithMantine();
 
     await waitFor(() => {
       expect(screen.getByText("TOTAL")).toBeInTheDocument();
@@ -79,11 +112,11 @@ describe("PeriodSummary totals semantics", () => {
     expect(totalSection.getByText("600.00")).toBeInTheDocument();
   });
 
-  it("shows summary metadata and lifecycle trigger", async () => {
-    render(<PeriodSummary />);
+  it("removes backend metadata and keeps lifecycle trigger", async () => {
+    renderWithMantine();
 
-    expect(await screen.findByText(/Periode backend/i)).toBeInTheDocument();
-    expect(screen.getByText(/Base d'aggregation/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Voir cycle des credits" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Voir cycle des credits" })).toBeInTheDocument();
+    expect(screen.queryByText(/Periode backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Base d'aggregation/i)).not.toBeInTheDocument();
   });
 });

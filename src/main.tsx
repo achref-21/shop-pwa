@@ -1,10 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { MantineProvider, createTheme } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import "@mantine/core/styles.css";
 import "@mantine/dates/styles.css";
+import "@mantine/notifications/styles.css";
 import "./styles/tokens.css";
 
 const theme = createTheme({
@@ -36,6 +38,7 @@ const theme = createTheme({
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <MantineProvider theme={theme}>
+      <Notifications position="top-center" zIndex={2000} />
       <RouterProvider router={router} />
     </MantineProvider>
   </React.StrictMode>

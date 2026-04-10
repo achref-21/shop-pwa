@@ -452,10 +452,10 @@ export default function Payments() {
           <div className="field">
             <DateInput
               label="Date prevue"
-              placeholder="AAAA-MM-JJ"
+              placeholder="JJ-MM-AAAA"
               value={status === "CREDIT" ? expectedDate || null : null}
               onChange={(value) => setExpectedDate(value ?? "")}
-              valueFormat="YYYY-MM-DD"
+              valueFormat="DD-MM-YYYY"
               disabled={status !== "CREDIT"}
             />
           </div>
